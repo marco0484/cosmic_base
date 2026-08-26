@@ -474,13 +474,13 @@ if (!user.id_productora) {
       await supabase
         .from("scanner_sessions")
         .insert({
-          token,
-          body: JSON.stringify({}),
-          id_productora: user.id_productora,
-          id_evento: evento_id,
-          expires_at,
-          used: false
-        });
+                  token,
+                  user_id: user.id,
+                  id_productora: user.id_productora,
+                  id_evento: evento_id,
+                  expires_at,
+                  used: false
+                });
 
     if (insertError) {
       console.error(insertError);
@@ -1082,11 +1082,8 @@ app.get("/mp/oauth/callback", async (req, res) => {
     const tokenData = await response.json();
 
     if (!response.ok) {
-
       console.error(tokenData);
-
       return res.status(400).json(tokenData);
-
     }
 
     const { error } = await supabase
