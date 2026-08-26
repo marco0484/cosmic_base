@@ -1320,65 +1320,6 @@ app.get("/eventos/:id/tickets", async (req, res) => {
   }
 });
 
-app.post("/mis-boletos", async (req, res) => {
-  try {
-    const { email, telefono } = req.body;
-
-    if (!email || !telefono) {
-      return res.status(400).json({
-        success: false,
-        message: "Faltan datos para validar"
-      });
-    }
-
-    const { data, error } = await supabase
-      .from("tickets")
-      .select(`
-        id,
-        nombre_cliente,
-        correo,
-        telefono,
-        tipo_ticket,
-        estatus,
-        folio,
-        ticket_token,
-        qr_code,
-        created_at
-      `)
-      .eq("correo", email)
-      .like("telefono", `%${telefono}`);
-
-    if (error) {
-      console.error("Error Supabase:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Error consultando tus boletos"
-      });
-    }
-
-    if (!data || data.length === 0) {
-      return res.json({
-        success: false,
-        message: "No encontramos boletos con esos datos"
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: "Boletos encontrados",
-      tickets: data
-    });
-
-  } catch (error) {
-    console.error("Error /mis-boletos:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Error interno del servidor"
-    });
-  }
-});
 
 app.post("/crear-ticket-gratis", async (req, res) => {
   try {
