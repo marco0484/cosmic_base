@@ -416,18 +416,19 @@ return res.json({
   }
 });
 
-app.post("/scanner/token", async (req, res) => {
-
+app.post("/scanner/token", requerirSesion, async (req, res) => {
   try {
 
-    const { user_id, evento_id = null } = req.body;
+const { evento_id = null } = req.body;
 
-    if (!user_id) {
-      return res.status(400).json({
-        success: false,
-        error: "Usuario requerido"
-      });
-    }
+const userId = Number(req.usuario.id);
+
+if (!userId) {
+  return res.status(401).json({
+    success: false,
+    error: "Sesión de usuario inválida"
+  });
+}
 
     const { data: user, error } = await supabase
       .from("cosmic_usuarios")
@@ -439,7 +440,7 @@ app.post("/scanner/token", async (req, res) => {
         activo,
         id_productora
       `)
-      .eq("id", user_id)
+      .eq("id", userId)
       .maybeSingle();
 
     if (error || !user) {
@@ -463,13 +464,6 @@ if (!user.id_productora) {
     });
 }
 
-    if (!user.id_productora) {
-      return res.status(403).json({
-        success: false,
-        error: "Sin productora asignada"
-      });
-    }
-
     const token = crypto.randomUUID();
 
     const expires_at = new Date(
@@ -481,7 +475,7 @@ if (!user.id_productora) {
         .from("scanner_sessions")
         .insert({
           token,
-          user_id: user.id,
+          body: JSON.stringify({}),
           id_productora: user.id_productora,
           id_evento: evento_id,
           expires_at,
