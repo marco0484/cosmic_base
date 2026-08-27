@@ -839,49 +839,154 @@ app.post(
   }
 );
 
-app.post("/stripe/connect/:productoraId", async (req, res) => {
-  try {
-    const { productoraId } = req.params;
+app.post("/stripe/connect/:productoraId",requerirSesion,async (req, res) => {
+    try {
 
-    const account = await stripe.accounts.create({
-      type: "standard"
-    });
+      const productoraSolicitada =
+        Number(req.params.productoraId);
 
-    const { error } = await supabase
-      .from("cat_productoras")
-      .update({
-        stripe_account_id: account.id,
-        stripe_onboarding_complete: false
-      })
-      .eq("id", productoraId);
+      if (
+        !Number.isInteger(productoraSolicitada) ||
+        productoraSolicitada <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Productora inválida"
+        });
+      }
 
-    if (error) {
-      throw error;
+      const rol =
+        String(req.usuario.rol || "")
+          .toLowerCase();
+
+      const idProductoraSesion =
+        Number(req.usuario.id_productora) || null;
+
+      const esOwner =
+        rol === "owner" ||
+        (rol === "admin" && !idProductoraSesion);
+
+      if (!esOwner) {
+
+        if (!idProductoraSesion) {
+          return res.status(403).json({
+            success: false,
+            error: "Usuario sin productora asignada"
+          });
+        }
+
+        if (
+          productoraSolicitada !==
+          idProductoraSesion
+        ) {
+          return res.status(403).json({
+            success: false,
+            error:
+              "No tienes permisos sobre esta productora"
+          });
+        }
+
+      }
+
+      const productoraId =
+        esOwner
+          ? productoraSolicitada
+          : idProductoraSesion;
+
+      const {
+        data: productora,
+        error: productoraError
+      } = await supabase
+        .from("cat_productoras")
+        .select(`
+          id,
+          stripe_account_id
+        `)
+        .eq("id", productoraId)
+        .maybeSingle();
+
+      if (productoraError) {
+        throw productoraError;
+      }
+
+      if (!productora) {
+        return res.status(404).json({
+          success: false,
+          error: "Productora no encontrada"
+        });
+      }
+
+      let stripeAccountId =
+        productora.stripe_account_id;
+
+      /*
+        Evitamos crear una cuenta Stripe nueva
+        cada vez que presionen conectar.
+      */
+      if (!stripeAccountId) {
+
+        const account =
+          await stripe.accounts.create({
+            type: "standard"
+          });
+
+        stripeAccountId =
+          account.id;
+
+        const { error: updateError } =
+          await supabase
+            .from("cat_productoras")
+            .update({
+              stripe_account_id:
+                stripeAccountId,
+              stripe_onboarding_complete:
+                false
+            })
+            .eq("id", productoraId);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+      }
+
+      const accountLink =
+        await stripe.accountLinks.create({
+          account: stripeAccountId,
+
+          refresh_url:
+            `https://www.cosmicpass.space/productora.html?id=${productoraId}`,
+
+          return_url:
+            `https://www.cosmicpass.space/productora.html?id=${productoraId}`,
+
+          type: "account_onboarding"
+        });
+
+      return res.json({
+        success: true,
+        url: accountLink.url,
+        stripe_account_id:
+          stripeAccountId
+      });
+
+    } catch (error) {
+
+      console.error(
+        "ERROR STRIPE CONNECT:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "No fue posible conectar Stripe"
+      });
+
     }
 
-    const accountLink = await stripe.accountLinks.create({
-      account: account.id,
-      refresh_url: `https://www.cosmicpass.space/productora.html?id=${productoraId}`,
-      return_url: `https://www.cosmicpass.space/productora.html?id=${productoraId}`,
-      type: "account_onboarding"
-    });
-
-    res.json({
-      success: true,
-      url: accountLink.url,
-      stripe_account_id: account.id
-    });
-
-  } catch (error) {
-    console.error("ERROR STRIPE CONNECT:", error);
-
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
   }
-});
-
+);
 app.get("/api/productora/:slug", async (req, res) => {  try {
 
     const slug = req.params.slug;
