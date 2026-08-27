@@ -195,44 +195,149 @@ function verificarMPState(state) {
   }
 }
 
-function requerirSesion(req, res, next) {
+async function requerirSesion(req, res, next) {
 
-  const cookieHeader = req.headers.cookie || "";
+  try {
 
-  const cookies = Object.fromEntries(
-    cookieHeader
-      .split(";")
-      .map(cookie => cookie.trim())
-      .filter(Boolean)
-      .map(cookie => {
+    const cookieHeader =
+      req.headers.cookie || "";
 
-        const index = cookie.indexOf("=");
+    const cookies =
+      Object.fromEntries(
+        cookieHeader
+          .split(";")
+          .map(cookie => cookie.trim())
+          .filter(Boolean)
+          .map(cookie => {
 
-        if (index === -1) {
-          return [cookie, ""];
-        }
+            const index =
+              cookie.indexOf("=");
 
-        return [
-          cookie.substring(0, index),
-          cookie.substring(index + 1)
-        ];
-      })
-  );
+            if (index === -1) {
+              return [cookie, ""];
+            }
 
-  const token = cookies.cp_session;
+            return [
+              cookie.substring(0, index),
+              cookie.substring(index + 1)
+            ];
 
-  const sesion = verificarSessionToken(token);
+          })
+      );
 
-  if (!sesion) {
-    return res.status(401).json({
+    const token =
+      cookies.cp_session;
+
+    const sesion =
+      verificarSessionToken(token);
+
+    if (!sesion) {
+
+      return res.status(401).json({
+        success: false,
+        error:
+          "Sesión inválida o expirada"
+      });
+
+    }
+
+    const userId =
+      Number(sesion.id);
+
+    if (!userId) {
+
+      return res.status(401).json({
+        success: false,
+        error: "Sesión inválida"
+      });
+
+    }
+
+    const {
+      data: usuario,
+      error
+    } = await supabase
+      .from("cosmic_usuarios")
+      .select(`
+        id,
+        nombre,
+        usuario,
+        rol,
+        activo,
+        id_productora
+      `)
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+
+      console.error(
+        "ERROR VALIDANDO SESIÓN:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "No fue posible validar la sesión"
+      });
+
+    }
+
+    if (
+      !usuario ||
+      !usuario.activo
+    ) {
+
+      res.setHeader(
+        "Set-Cookie",
+        "cp_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0"
+      );
+
+      return res.status(401).json({
+        success: false,
+        error:
+          "Usuario inactivo o sesión inválida"
+      });
+
+    }
+
+    req.usuario = {
+      id: Number(usuario.id),
+
+      nombre:
+        usuario.nombre ||
+        usuario.usuario,
+
+      usuario:
+        usuario.usuario,
+
+      rol:
+        String(usuario.rol || ""),
+
+      id_productora:
+        usuario.id_productora
+          ? Number(usuario.id_productora)
+          : null
+    };
+
+    next();
+
+  } catch (error) {
+
+    console.error(
+      "ERROR EN requerirSesion:",
+      error
+    );
+
+    return res.status(500).json({
       success: false,
-      error: "Sesión inválida o expirada"
+      error:
+        "Error validando sesión"
     });
+
   }
 
-  req.usuario = sesion;
-
-  next();
 }
 
 app.use(cors());
@@ -509,6 +614,32 @@ return res.json({
       error: "Error en servidor"
     });
   }
+});
+
+app.get(
+  "/api/me",
+  requerirSesion,
+  async (req, res) => {
+
+    return res.json({
+      success: true,
+      user: req.usuario
+    });
+
+  }
+);
+
+app.post("/logout", (req, res) => {
+
+  res.setHeader(
+    "Set-Cookie",
+    "cp_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0"
+  );
+
+  return res.json({
+    success: true
+  });
+
 });
 
 app.post("/scanner/token", requerirSesion, async (req, res) => {
