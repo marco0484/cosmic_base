@@ -99,6 +99,101 @@ function verificarSessionToken(token) {
   }
 }
 
+function crearMPState(productoraId, userId) {
+
+  const payload = {
+    productoraId: Number(productoraId),
+    userId: Number(userId),
+    exp: Date.now() + (10 * 60 * 1000),
+    nonce: crypto.randomBytes(16).toString("hex")
+  };
+
+  const encodedPayload =
+    Buffer
+      .from(JSON.stringify(payload))
+      .toString("base64url");
+
+  const signature =
+    crypto
+      .createHmac("sha256", SESSION_SECRET)
+      .update(encodedPayload)
+      .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+
+function verificarMPState(state) {
+
+  try {
+
+    if (!state) {
+      return null;
+    }
+
+    const partes = state.split(".");
+
+    if (partes.length !== 2) {
+      return null;
+    }
+
+    const [encodedPayload, signature] = partes;
+
+    const expectedSignature =
+      crypto
+        .createHmac("sha256", SESSION_SECRET)
+        .update(encodedPayload)
+        .digest("base64url");
+
+    const firmaReal =
+      Buffer.from(signature);
+
+    const firmaEsperada =
+      Buffer.from(expectedSignature);
+
+    if (
+      firmaReal.length !== firmaEsperada.length ||
+      !crypto.timingSafeEqual(
+        firmaReal,
+        firmaEsperada
+      )
+    ) {
+      return null;
+    }
+
+    const payload =
+      JSON.parse(
+        Buffer
+          .from(encodedPayload, "base64url")
+          .toString("utf8")
+      );
+
+    if (
+      !payload.exp ||
+      Date.now() > payload.exp
+    ) {
+      return null;
+    }
+
+    if (
+      !Number(payload.productoraId) ||
+      !Number(payload.userId)
+    ) {
+      return null;
+    }
+
+    return payload;
+
+  } catch (error) {
+
+    console.error(
+      "ERROR VERIFICANDO MP STATE:",
+      error
+    );
+
+    return null;
+  }
+}
 
 function requerirSesion(req, res, next) {
 
@@ -1167,127 +1262,302 @@ if (productoraError || !productora?.stripe_account_id) {
 
 });
 
-app.get("/mp/connect/:productoraId", async (req, res) => {
+app.get(
+  "/mp/connect/:productoraId",
+  requerirSesion,
+  async (req, res) => {
 
-  try {
+    try {
 
-    const productoraId = Number(req.params.productoraId);
+      const productoraSolicitada =
+        Number(req.params.productoraId);
 
-    if (!productoraId) {
+      if (
+        !Number.isInteger(productoraSolicitada) ||
+        productoraSolicitada <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Productora inválida"
+        });
+      }
 
-      return res.status(400).json({
+      const rol =
+        String(req.usuario.rol || "")
+          .toLowerCase();
+
+      const idProductoraSesion =
+        Number(req.usuario.id_productora) || null;
+
+      const esOwner =
+        rol === "owner" ||
+        (rol === "admin" && !idProductoraSesion);
+
+      if (!esOwner) {
+
+        if (!idProductoraSesion) {
+          return res.status(403).json({
+            success: false,
+            error: "Usuario sin productora asignada"
+          });
+        }
+
+        if (
+          productoraSolicitada !==
+          idProductoraSesion
+        ) {
+          return res.status(403).json({
+            success: false,
+            error:
+              "No tienes permisos sobre esta productora"
+          });
+        }
+
+      }
+
+      const productoraId =
+        esOwner
+          ? productoraSolicitada
+          : idProductoraSesion;
+
+      const {
+        data: productora,
+        error: productoraError
+      } = await supabase
+        .from("cat_productoras")
+        .select("id")
+        .eq("id", productoraId)
+        .maybeSingle();
+
+      if (productoraError) {
+        throw productoraError;
+      }
+
+      if (!productora) {
+        return res.status(404).json({
+          success: false,
+          error: "Productora no encontrada"
+        });
+      }
+
+      const state =
+        crearMPState(
+          productoraId,
+          req.usuario.id
+        );
+
+      const authorizationUrl =
+        "https://auth.mercadopago.com/authorization" +
+        "?response_type=code" +
+        `&client_id=${encodeURIComponent(process.env.MP_CLIENT_ID)}` +
+        `&redirect_uri=${encodeURIComponent(process.env.MP_REDIRECT_URI)}` +
+        `&state=${encodeURIComponent(state)}`;
+
+      return res.redirect(
+        authorizationUrl
+      );
+
+    } catch (error) {
+
+      console.error(
+        "ERROR MP CONNECT:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-        error: "Productora inválida"
+        error:
+          "No fue posible iniciar la conexión."
       });
 
     }
 
-    const state = Buffer
-      .from(JSON.stringify({
-        productoraId
-      }))
-      .toString("base64url");
-
-    const authorizationUrl =
-      "https://auth.mercadopago.com/authorization" +
-      "?response_type=code" +
-      `&client_id=${encodeURIComponent(process.env.MP_CLIENT_ID)}` +
-      `&redirect_uri=${encodeURIComponent(process.env.MP_REDIRECT_URI)}` +
-      `&state=${encodeURIComponent(state)}`;
-
-    return res.redirect(authorizationUrl);
-
-  } catch (error) {
-
-    console.error(error);
-
-    return res.status(500).json({
-      success:false,
-      error:"No fue posible iniciar la conexión."
-    });
-
   }
+);
 
-});
 
+app.get(
+  "/mp/oauth/callback",
+  async (req, res) => {
 
-app.get("/mp/oauth/callback", async (req, res) => {
+    try {
 
-  try {
+      const { code, state } = req.query;
 
-    const { code, state } = req.query;
-
-    if (!code || !state) {
-      return res.status(400).send("Solicitud inválida.");
-    }
-
-    const {
-      productoraId
-    } = JSON.parse(
-      Buffer.from(state, "base64url").toString("utf8")
-    );
-
-    const response = await fetch(
-      "https://api.mercadopago.com/oauth/token",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          client_id: process.env.MP_CLIENT_ID,
-          client_secret: process.env.MP_CLIENT_SECRET,
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: process.env.MP_REDIRECT_URI
-        })
+      if (!code || !state) {
+        return res
+          .status(400)
+          .send("Solicitud inválida.");
       }
-    );
 
-    const tokenData = await response.json();
+      const stateData =
+        verificarMPState(state);
 
-    if (!response.ok) {
-      console.error(tokenData);
-      return res.status(400).json(tokenData);
+      if (!stateData) {
+        return res
+          .status(400)
+          .send(
+            "Solicitud inválida o expirada."
+          );
+      }
+
+      const productoraId =
+        Number(stateData.productoraId);
+
+      const userId =
+        Number(stateData.userId);
+
+      /*
+        Revalidamos al usuario desde BD.
+        No confiamos solamente en lo que
+        existía cuando comenzó el OAuth.
+      */
+      const {
+        data: usuario,
+        error: usuarioError
+      } = await supabase
+        .from("cosmic_usuarios")
+        .select(`
+          id,
+          rol,
+          activo,
+          id_productora
+        `)
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (
+        usuarioError ||
+        !usuario ||
+        !usuario.activo
+      ) {
+        return res
+          .status(403)
+          .send("Usuario no autorizado.");
+      }
+
+      const rol =
+        String(usuario.rol || "")
+          .toLowerCase();
+
+      const idProductoraUsuario =
+        Number(usuario.id_productora) || null;
+
+      const esOwner =
+        rol === "owner" ||
+        (
+          rol === "admin" &&
+          !idProductoraUsuario
+        );
+
+      if (
+        !esOwner &&
+        idProductoraUsuario !== productoraId
+      ) {
+        return res
+          .status(403)
+          .send(
+            "No tienes permisos sobre esta productora."
+          );
+      }
+
+      const response =
+        await fetch(
+          "https://api.mercadopago.com/oauth/token",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json"
+            },
+
+            body: JSON.stringify({
+              client_id:
+                process.env.MP_CLIENT_ID,
+
+              client_secret:
+                process.env.MP_CLIENT_SECRET,
+
+              grant_type:
+                "authorization_code",
+
+              code,
+
+              redirect_uri:
+                process.env.MP_REDIRECT_URI
+            })
+          }
+        );
+
+      const tokenData =
+        await response.json();
+
+      if (!response.ok) {
+
+        console.error(
+          "ERROR TOKEN MP:",
+          tokenData
+        );
+
+        return res
+          .status(400)
+          .send(
+            "Mercado Pago rechazó la autorización."
+          );
+      }
+
+      const { error } =
+        await supabase
+          .from("cat_productoras")
+          .update({
+
+            mp_access_token:
+              tokenData.access_token,
+
+            mp_refresh_token:
+              tokenData.refresh_token,
+
+            mp_user_id:
+              String(tokenData.user_id),
+
+            mp_connected:
+              true,
+
+            mp_token_expires_at:
+              new Date(
+                Date.now() +
+                tokenData.expires_in * 1000
+              )
+
+          })
+          .eq("id", productoraId);
+
+      if (error) {
+        throw error;
+      }
+
+      return res.redirect(
+        `/productora.html?id=${productoraId}&mp=connected`
+      );
+
+    } catch (error) {
+
+      console.error(
+        "ERROR MP CALLBACK:",
+        error
+      );
+
+      return res
+        .status(500)
+        .send(
+          "Error conectando Mercado Pago."
+        );
+
     }
 
-    const { error } = await supabase
-      .from("cat_productoras")
-      .update({
-
-        mp_access_token: tokenData.access_token,
-
-        mp_refresh_token: tokenData.refresh_token,
-
-        mp_user_id: String(tokenData.user_id),
-
-        mp_connected: true,
-
-        mp_token_expires_at: new Date(
-          Date.now() + tokenData.expires_in * 1000
-        )
-
-      })
-      .eq("id", productoraId);
-
-    if (error)
-      throw error;
-
-    res.redirect(
-      `/productora.html?id=${productoraId}&mp=connected`
-    );
-
-  } catch (error) {
-
-    console.error(error);
-
-    res.status(500).send(
-      "Error conectando Mercado Pago."
-    );
-
   }
-
-});
+);
 
 app.get("/events", async (req, res) => {
   try {
