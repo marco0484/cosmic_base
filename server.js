@@ -697,32 +697,82 @@ if (user.id_productora) {
 
 });
 
-app.post("/admin/activar-cortesias", async (req, res) => {
-  try {
-    const {
-      id_productora,
-      evento_id,
-      cantidad
-    } = req.body;
+app.post(
+  "/admin/activar-cortesias",
+  requerirSesion,
+  async (req, res) => {
 
-    const idProductora = Number(id_productora);
-    const eventoId = Number(evento_id);
-    const cantidadAgregar = Number(cantidad);
+    try {
 
-    if (
-      !idProductora ||
-      !eventoId ||
-      !Number.isInteger(cantidadAgregar) ||
-      cantidadAgregar <= 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Datos inválidos"
-      });
-    }
+      const {
+        id_productora,
+        evento_id,
+        cantidad
+      } = req.body;
 
-    const { data: ticket, error: ticketError } =
-      await supabase
+      const rol =
+        String(req.usuario.rol || "")
+          .toLowerCase();
+
+      const idProductoraSesion =
+        Number(req.usuario.id_productora) || null;
+
+      const esOwner =
+        rol === "owner" ||
+        (rol === "admin" && !idProductoraSesion);
+
+      let idProductora;
+
+      if (esOwner) {
+
+        idProductora =
+          Number(id_productora);
+
+        if (
+          !Number.isInteger(idProductora) ||
+          idProductora <= 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Productora inválida"
+          });
+        }
+
+      } else {
+
+        if (!idProductoraSesion) {
+          return res.status(403).json({
+            success: false,
+            error: "Usuario sin productora asignada"
+          });
+        }
+
+        idProductora =
+          idProductoraSesion;
+      }
+
+      const eventoId =
+        Number(evento_id);
+
+      const cantidadAgregar =
+        Number(cantidad);
+
+      if (
+        !Number.isInteger(eventoId) ||
+        eventoId <= 0 ||
+        !Number.isInteger(cantidadAgregar) ||
+        cantidadAgregar <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Datos inválidos"
+        });
+      }
+
+      const {
+        data: ticket,
+        error: ticketError
+      } = await supabase
         .from("ticket_types")
         .select(`
           id,
@@ -737,47 +787,57 @@ app.post("/admin/activar-cortesias", async (req, res) => {
         .eq("ind_activo", 1)
         .maybeSingle();
 
-    if (ticketError) {
-      throw ticketError;
-    }
+      if (ticketError) {
+        throw ticketError;
+      }
 
-    if (!ticket) {
-      return res.status(404).json({
-        success: false,
-        error: "Este evento no tiene un acceso gratuito configurado"
+      if (!ticket) {
+        return res.status(404).json({
+          success: false,
+          error:
+            "Este evento no tiene un acceso gratuito configurado"
+        });
+      }
+
+      const nuevoStock =
+        Number(ticket.stock_disponible || 0) +
+        cantidadAgregar;
+
+      const { error: updateError } =
+        await supabase
+          .from("ticket_types")
+          .update({
+            stock_disponible: nuevoStock
+          })
+          .eq("id", ticket.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      return res.json({
+        success: true,
+        message:
+          `${cantidadAgregar} cortesías activadas correctamente`
       });
+
+    } catch (error) {
+
+      console.error(
+        "ERROR ACTIVANDO CORTESÍAS:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "No se pudieron activar las cortesías"
+      });
+
     }
 
-    const nuevoStock =
-      Number(ticket.stock_disponible || 0) +
-      cantidadAgregar;
-
-    const { error: updateError } =
-      await supabase
-        .from("ticket_types")
-        .update({
-          stock_disponible: nuevoStock
-        })
-        .eq("id", ticket.id);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    return res.json({
-      success: true,
-      message: `${cantidadAgregar} cortesías activadas correctamente`
-    });
-
-  } catch (error) {
-    console.error("ERROR ACTIVANDO CORTESÍAS:", error);
-
-    return res.status(500).json({
-      success: false,
-      error: "No se pudieron activar las cortesías"
-    });
   }
-});
+);
 
 app.post("/stripe/connect/:productoraId", async (req, res) => {
   try {
