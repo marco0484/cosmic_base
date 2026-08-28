@@ -195,7 +195,7 @@ function verificarMPState(state) {
   }
 }
 
-async function requerirSesionPagina(req, res, next) {
+async function requerirSesion(req, res, next) {
 
   try {
 
