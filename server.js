@@ -789,6 +789,149 @@ if (!user.id_productora) {
   }
 
 });
+/* =========================================================
+   GENERADOR - CREAR TOKEN
+========================================================= */
+
+app.post(
+  "/generator/token",
+  requerirSesion,
+  async (req, res) => {
+
+    try {
+
+      const userId =
+        Number(req.usuario.id);
+
+      if (!userId) {
+
+        return res.status(401).json({
+          success: false,
+          error: "Sesión inválida"
+        });
+
+      }
+
+
+      const {
+        data: user,
+        error: userError
+      } = await supabase
+        .from("cosmic_usuarios")
+        .select(`
+          id,
+          nombre,
+          usuario,
+          rol,
+          activo,
+          id_productora
+        `)
+        .eq("id", userId)
+        .maybeSingle();
+
+
+      if (
+        userError ||
+        !user ||
+        !user.activo
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          error: "Usuario no autorizado"
+        });
+
+      }
+
+
+      if (!user.id_productora) {
+
+        return res.status(403).json({
+          success: false,
+          error: "Sin productora asignada"
+        });
+
+      }
+
+
+      const token =
+        crypto.randomUUID();
+
+
+      const expires_at =
+        new Date(
+          Date.now() +
+          (8 * 60 * 60 * 1000)
+        );
+
+
+      const {
+        error: insertError
+      } = await supabase
+        .from("scanner_sessions")
+        .insert({
+
+          token,
+
+          user_id:
+            user.id,
+
+          id_productora:
+            user.id_productora,
+
+          id_evento:
+            null,
+
+          expires_at,
+
+          used:
+            false,
+
+          id_origen:
+            2
+
+        });
+
+
+      if (insertError) {
+
+        console.error(
+          "ERROR TOKEN GENERADOR:",
+          insertError
+        );
+
+        return res.status(500).json({
+          success: false,
+          error:
+            "No fue posible crear el token"
+        });
+
+      }
+
+
+      return res.json({
+        success: true,
+        token,
+        expires_at
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "ERROR /generator/token:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: "Error interno"
+      });
+
+    }
+
+  }
+);
 
 app.get("/admin/dashboard", requerirSesion, async (req, res) => {
   try {
@@ -875,12 +1018,13 @@ app.get("/scanner/validate", async (req, res) => {
       });
     }
 
-    const { data, error } =
-      await supabase
-      .from("scanner_sessions")
-      .select("*")
-      .eq("token", token)
-      .maybeSingle();
+   const { data, error } =
+  await supabase
+    .from("scanner_sessions")
+    .select("*")
+    .eq("token", token)
+    .is("id_origen", null)
+    .maybeSingle();
 
     if (error || !data) {
       return res.status(401).json({
@@ -977,11 +1121,137 @@ if (user.id_productora) {
 
 });
 
-app.post(
-  "/admin/activar-cortesias",
-  requerirSesion,
+/* =========================================================
+   GENERADOR - VALIDAR TOKEN
+========================================================= */
+
+app.get(
+  "/generator/validate",
   async (req, res) => {
 
+    try {
+
+      const token =
+        String(
+          req.query.token || ""
+        ).trim();
+
+
+      if (!token) {
+
+        return res.status(401).json({
+          success: false,
+          error: "Token requerido"
+        });
+
+      }
+
+
+      const {
+        data: session,
+        error
+      } = await supabase
+        .from("scanner_sessions")
+        .select("*")
+        .eq("token", token)
+        .eq("id_origen", 2)
+        .maybeSingle();
+
+
+      if (
+        error ||
+        !session
+      ) {
+
+        return res.status(401).json({
+          success: false,
+          error: "Token inválido"
+        });
+
+      }
+
+
+      if (
+        new Date(session.expires_at) <
+        new Date()
+      ) {
+
+        return res.status(401).json({
+          success: false,
+          error: "Token expirado"
+        });
+
+      }
+
+
+      const {
+        data: user,
+        error: userError
+      } = await supabase
+        .from("cosmic_usuarios")
+        .select(`
+          id,
+          nombre,
+          usuario,
+          rol,
+          activo,
+          id_productora
+        `)
+        .eq(
+          "id",
+          session.user_id
+        )
+        .maybeSingle();
+
+
+      if (
+        userError ||
+        !user ||
+        !user.activo
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          error: "Usuario no autorizado"
+        });
+
+      }
+
+
+      return res.json({
+
+        success: true,
+
+        user: {
+          id: user.id,
+          nombre: user.nombre,
+          usuario: user.usuario,
+          rol: user.rol,
+          id_productora:
+            user.id_productora
+        }
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "ERROR /generator/validate:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: "Error validando acceso"
+      });
+
+    }
+
+  }
+);
+
+app.post("/admin/activar-cortesias",requerirSesion,async (req, res) => {
     try {
 
       const {
