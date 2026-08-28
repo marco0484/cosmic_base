@@ -195,7 +195,7 @@ function verificarMPState(state) {
   }
 }
 
-async function requerirSesion(req, res, next) {
+async function requerirSesionPagina(req, res, next) {
 
   try {
 
@@ -225,66 +225,63 @@ async function requerirSesion(req, res, next) {
           })
       );
 
+
     const token =
       cookies.cp_session;
+
 
     const sesion =
       verificarSessionToken(token);
 
+
+    /* ===================================== */
+    /* SIN SESIÓN */
+    /* ===================================== */
+
     if (!sesion) {
 
-      return res.status(401).json({
-        success: false,
-        error:
-          "Sesión inválida o expirada"
-      });
+      return res.redirect(
+        "/login.html?redirect=/generador/"
+      );
 
     }
+
 
     const userId =
       Number(sesion.id);
 
+
     if (!userId) {
 
-      return res.status(401).json({
-        success: false,
-        error: "Sesión inválida"
-      });
+      return res.redirect(
+        "/login.html?redirect=/generador/"
+      );
 
     }
+
+
+    /* ===================================== */
+    /* VALIDAR USUARIO EN BD */
+    /* ===================================== */
 
     const {
       data: usuario,
       error
-    } = await supabase
-      .from("cosmic_usuarios")
-      .select(`
-        id,
-        nombre,
-        usuario,
-        rol,
-        activo,
-        id_productora
-      `)
-      .eq("id", userId)
-      .maybeSingle();
+    } =
+      await supabase
+        .from("cosmic_usuarios")
+        .select(`
+          id,
+          rol,
+          activo,
+          id_productora
+        `)
+        .eq("id", userId)
+        .maybeSingle();
 
-    if (error) {
-
-      console.error(
-        "ERROR VALIDANDO SESIÓN:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        error:
-          "No fue posible validar la sesión"
-      });
-
-    }
 
     if (
+      error ||
       !usuario ||
       !usuario.activo
     ) {
@@ -294,23 +291,15 @@ async function requerirSesion(req, res, next) {
         "cp_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0"
       );
 
-      return res.status(401).json({
-        success: false,
-        error:
-          "Usuario inactivo o sesión inválida"
-      });
+      return res.redirect(
+        "/login.html?redirect=/generador/"
+      );
 
     }
 
+
     req.usuario = {
       id: Number(usuario.id),
-
-      nombre:
-        usuario.nombre ||
-        usuario.usuario,
-
-      usuario:
-        usuario.usuario,
 
       rol:
         String(usuario.rol || ""),
@@ -321,26 +310,91 @@ async function requerirSesion(req, res, next) {
           : null
     };
 
+
     next();
+
 
   } catch (error) {
 
     console.error(
-      "ERROR EN requerirSesion:",
+      "ERROR PROTEGIENDO GENERADOR:",
       error
     );
 
-    return res.status(500).json({
-      success: false,
-      error:
-        "Error validando sesión"
-    });
+
+    return res.redirect(
+      "/login.html?redirect=/generador/"
+    );
 
   }
 
 }
 
+function requerirSesionPagina(req, res, next) {
+
+  const cookieHeader =
+    req.headers.cookie || "";
+
+  const cookies =
+    Object.fromEntries(
+      cookieHeader
+        .split(";")
+        .map(cookie => cookie.trim())
+        .filter(Boolean)
+        .map(cookie => {
+
+          const index =
+            cookie.indexOf("=");
+
+          if (index === -1) {
+            return [cookie, ""];
+          }
+
+          return [
+            cookie.substring(0, index),
+            cookie.substring(index + 1)
+          ];
+
+        })
+    );
+
+  const token =
+    cookies.cp_session;
+
+  const sesion =
+    verificarSessionToken(token);
+
+
+  if (!sesion) {
+
+    return res.redirect(
+      "/login.html?redirect=/generador/"
+    );
+
+  }
+
+  req.usuario = sesion;
+
+  next();
+}
+
 app.use(cors());
+/* ========================================= */
+/* GENERADOR PROTEGIDO */
+/* ========================================= */
+
+app.use(
+  "/generador",
+  requerirSesionPagina,
+  express.static(
+    path.join(
+      __dirname,
+      "public",
+      "generador"
+    )
+  )
+);
+
 app.use(express.static(path.join(__dirname, "public")));
 app.use((req, res, next) => {
 
