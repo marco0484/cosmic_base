@@ -92,10 +92,89 @@ function configurarBotones() {
 
 document.querySelectorAll("[data-action]").forEach(button => {
 
-  button.addEventListener("click", async () => {
+  button.addEventListener("click", async (event) => {
+
+    event.preventDefault();
 
     const action = button.dataset.action;
 
+    /* =========================================
+   GENERADOR
+========================================= */
+
+if (
+  action === "generador" ||
+  action === "generator"
+) {
+
+  try {
+
+    const response =
+      await fetch(
+        `${API}/generator/token`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+
+    const data =
+      await response.json();
+
+
+    if (
+      !response.ok ||
+      !data.success ||
+      !data.token
+    ) {
+
+      console.error(
+        "ERROR TOKEN GENERADOR:",
+        data
+      );
+
+      alert(
+        data.error ||
+        "No fue posible obtener acceso al generador."
+      );
+
+      return;
+
+    }
+
+
+    console.log(
+      "✅ TOKEN GENERADOR:",
+      data.token
+    );
+
+
+    window.open(
+      `https://generador-tawny.vercel.app/?token=${encodeURIComponent(data.token)}`,
+      "_blank"
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "ERROR ABRIENDO GENERADOR:",
+      error
+    );
+
+    alert(
+      "No fue posible abrir el generador."
+    );
+
+  }
+
+
+  return;
+}
     if (action === "scanner") {
 
       try {
