@@ -14,7 +14,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     initBuscador();
   }
 
-  initBuscador(); 
   const items = document.querySelectorAll(".legal-item");
 
   items.forEach(item => {
@@ -283,13 +282,9 @@ const pastEvents =
     `;
 
 card.addEventListener("click", () => {
+                                        window.location.href = `/productora/${evento.desc_slug}`;
 
-  console.log(evento);
-  console.log("SLUG:", evento.desc_slug);
-
-  window.location.href = `/productora/${evento.desc_slug}`;
-
-});
+                                      });
 
     container.appendChild(card);
 
@@ -300,15 +295,10 @@ card.addEventListener("click", () => {
 
     pastEvents.forEach(evento => {
 
-      const card =
-        document.createElement("div");
-
+      const card = document.createElement("div");
       card.classList.add("card");
-
       card.classList.add("past-event-card");
-
-      const fecha =
-        new Date(evento.event_date);
+      const fecha = new Date(evento.event_date);
 
       const fechaFormateada =
         fecha.toLocaleDateString("es-MX", {
