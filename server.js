@@ -491,40 +491,15 @@ const { error } =
 telefono:
   session.customer_details?.phone ||
   null,
-
-      cantidad:
-        Number(
-          session.metadata.cantidad
-        ),
-
-      monto:
-        session.amount_total / 100,
-
-      metodo_pago:
-        "STRIPE",
-
-      payment_id:
-        session.payment_intent,
-
-      payment_status:
-        "paid",
-
-      fecha_pago:
-        new Date(),
-
-      estatus:
-        "pendiente",
-
-      ticket_type_id:
-        Number(
-          session.metadata.ticket_id
-        ),
-
-      ticket_token:
-        ticketToken,
-
-      folio:
-        folio
+  cantidad:Number(session.metadata.cantidad),
+      monto: session.amount_total / 100,
+      metodo_pago: "STRIPE",
+      payment_id: session.payment_intent,
+      payment_status: "paid",
+      fecha_pago: new Date(),
+      ticket_type_id: Number(session.metadata.ticket_id),
+      ticket_token:ticketToken,
+      folio:folio
 
     }]);
 
@@ -2302,7 +2277,6 @@ if (eventoError || !evento) {
         payment_id:null,
         payment_status:"free",
         fecha_pago:new Date(),
-        estatus:"pendiente",
         ticket_type_id:ticket.id,
         ticket_token:ticketToken,
         folio
@@ -2619,46 +2593,16 @@ app.post("/webhook-mp", async (req, res) => {
         .from("tickets")
         .insert([{
           evento_id: ticketInfo.id_evento,
-
-          nombre_cliente:
-            pago.metadata?.nombre ||
-            "Cliente Mercado Pago",
-
-          correo:
-            pago.metadata?.correo ||
-            pago.payer?.email ||
-            null,
-
-          telefono:
-            pago.metadata?.telefono ||
-            null,
-
-          cantidad,
-
-          monto:
-            pago.transaction_amount,
-
-          metodo_pago:
-            "MERCADO_PAGO",
-
-          payment_id:
-            String(pago.id),
-
-          payment_status:
-            pago.status,
-
-          fecha_pago:
-            new Date(),
-
-          estatus:
-            "pendiente",
-
-          ticket_type_id:
-            ticketInfo.id,
-
-          ticket_token:
-            ticketToken,
-
+          nombre_cliente: pago.metadata?.nombre || "Cliente Mercado Pago",
+          correo: pago.metadata?.correo || pago.payer?.email || null,
+          telefono: pago.metadata?.telefono || null, cantidad,
+          monto: pago.transaction_amount,
+          metodo_pago: "MERCADO_PAGO",
+          payment_id: String(pago.id),
+          payment_status: pago.status,
+          fecha_pago: new Date(),
+          ticket_type_id: ticketInfo.id,
+          ticket_token: ticketToken,
           folio
         }]);
 
