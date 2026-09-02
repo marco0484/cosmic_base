@@ -464,43 +464,24 @@ if (existe) {
   });
 }
 
-const ticketToken =
-  crypto.randomUUID();
-
-const folio =
-  `CP-${Date.now()}`;
+const ticketToken = crypto.randomUUID();
 
 const { error } =
   await supabase
     .from("tickets")
     .insert([{
-
-      evento_id:
-        Number(
-          session.metadata.evento_id
-        ),
-
-      nombre_cliente:
-        session.customer_details?.name ||
-        "Cliente Stripe",
-
-     correo:
-  session.customer_details?.email ||
-  null,
-
-telefono:
-  session.customer_details?.phone ||
-  null,
-  cantidad:Number(session.metadata.cantidad),
+      evento_id:Number(session.metadata.evento_id),
+      nombre_cliente:session.customer_details?.name ||"Cliente Stripe",
+      correo:session.customer_details?.email ||null,
+      telefono:session.customer_details?.phone ||null,
+      cantidad:Number(session.metadata.cantidad),
       monto: session.amount_total / 100,
       metodo_pago: "STRIPE",
       payment_id: session.payment_intent,
       payment_status: "paid",
       fecha_pago: new Date(),
       ticket_type_id: Number(session.metadata.ticket_id),
-      ticket_token:ticketToken,
-      folio:folio
-
+      ticket_token:ticketToken
     }]);
 
 if (error) {
@@ -2257,7 +2238,6 @@ if (eventoError || !evento) {
     }
 
     const ticketToken = crypto.randomUUID();
-    const folio = `CP-${Date.now()}`;
     const qrImage = await QRCode.toDataURL(ticketToken, {
       width:300,
       margin:2,
@@ -2278,9 +2258,8 @@ if (eventoError || !evento) {
         payment_status:"free",
         fecha_pago:new Date(),
         ticket_type_id:ticket.id,
-        ticket_token:ticketToken,
-        folio
-      }]);
+        ticket_token:ticketToken
+            }]);
 
     if (insertError) {
       return res.status(500).json({
@@ -2585,8 +2564,6 @@ app.post("/webhook-mp", async (req, res) => {
     const ticketToken =
       crypto.randomUUID();
 
-    const folio =
-      `CP-${Date.now()}`;
 
     const { error: insertError } =
       await supabase
@@ -2602,9 +2579,8 @@ app.post("/webhook-mp", async (req, res) => {
           payment_status: pago.status,
           fecha_pago: new Date(),
           ticket_type_id: ticketInfo.id,
-          ticket_token: ticketToken,
-          folio
-        }]);
+          ticket_token: ticketToken
+                }]);
 
     if (insertError) {
       console.error("ERROR INSERTANDO TICKET:");
