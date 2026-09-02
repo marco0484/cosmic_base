@@ -127,11 +127,6 @@ function initMisBoletos() {
             </p>
 
             <p>
-              <strong>Folio:</strong>
-              ${ticket.folio || ""}
-            </p>
-
-            <p>
               <strong>Estatus:</strong>
               ${ticket.estatus || ""}
             </p>

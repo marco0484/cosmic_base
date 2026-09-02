@@ -2345,7 +2345,6 @@ if (eventoError || !evento) {
 
         <p><strong>👤 Nombre:</strong> ${nombre}</p>
         <p><strong>🎟️ Tipo de acceso:</strong> ${ticket.tipo_ticket}</p>
-        <p><strong>🔖 Folio:</strong> ${folio}</p>
 
         <div style="text-align:center;margin:28px 0;">
           <p><strong>Presenta este QR en el acceso:</strong></p>
