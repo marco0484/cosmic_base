@@ -1151,6 +1151,176 @@ app.get("/admin/rps/resumen", requerirSesion, async (req, res) => {
   }
 });
 
+app.post("/admin/rps/asignar", requerirSesion, async (req, res) => {
+  try {
+
+    const {
+      rp_user_id,
+      id_evento,
+      ticket_type_id,
+      cantidad
+    } = req.body;
+
+    const rol =
+      String(req.usuario.rol || "").toLowerCase();
+
+    const idProductora =
+      Number(req.usuario.id_productora) || null;
+
+    if (rol !== "admin" || !idProductora) {
+      return res.status(403).json({
+        success: false,
+        error: "No tienes permisos para asignar accesos"
+      });
+    }
+
+    const rpId = Number(rp_user_id);
+    const eventoId = Number(id_evento);
+    const ticketTypeId = Number(ticket_type_id);
+    const cantidadAsignar = Number(cantidad);
+
+    if (
+      !Number.isInteger(rpId) ||
+      !Number.isInteger(eventoId) ||
+      !Number.isInteger(ticketTypeId) ||
+      !Number.isInteger(cantidadAsignar) ||
+      cantidadAsignar <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Datos inválidos"
+      });
+    }
+
+    /* VALIDAR RP */
+
+    const {
+      data: rp,
+      error: rpError
+    } = await supabase
+      .from("cosmic_usuarios")
+      .select("id, rol, activo, id_productora")
+      .eq("id", rpId)
+      .eq("id_productora", idProductora)
+      .eq("rol", "rp")
+      .maybeSingle();
+
+    if (rpError) throw rpError;
+
+    if (!rp || !rp.activo) {
+      return res.status(404).json({
+        success: false,
+        error: "RP no válido"
+      });
+    }
+
+    /* VALIDAR TIPO DE ACCESO */
+
+    const {
+      data: ticketType,
+      error: ticketError
+    } = await supabase
+      .from("ticket_types")
+      .select("id, id_evento, id_productora, tipo_ticket")
+      .eq("id", ticketTypeId)
+      .eq("id_evento", eventoId)
+      .eq("id_productora", idProductora)
+      .eq("ind_activo", 1)
+      .maybeSingle();
+
+    if (ticketError) throw ticketError;
+
+    if (!ticketType) {
+      return res.status(404).json({
+        success: false,
+        error: "Tipo de acceso no válido"
+      });
+    }
+
+    /* BUSCAR ASIGNACIÓN EXISTENTE */
+
+    const {
+      data: asignacion,
+      error: asignacionError
+    } = await supabase
+      .from("rp_asignaciones")
+      .select("id, cantidad_asignada")
+      .eq("rp_user_id", rpId)
+      .eq("id_evento", eventoId)
+      .eq("ticket_type_id", ticketTypeId)
+      .eq("id_productora", idProductora)
+      .maybeSingle();
+
+    if (asignacionError) throw asignacionError;
+
+    let resultado;
+
+    if (asignacion) {
+
+      const nuevaCantidad =
+        Number(asignacion.cantidad_asignada) +
+        cantidadAsignar;
+
+      const {
+        data,
+        error
+      } = await supabase
+        .from("rp_asignaciones")
+        .update({
+          cantidad_asignada: nuevaCantidad,
+          activo: true
+        })
+        .eq("id", asignacion.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      resultado = data;
+
+    } else {
+
+      const {
+        data,
+        error
+      } = await supabase
+        .from("rp_asignaciones")
+        .insert({
+          id_productora: idProductora,
+          id_evento: eventoId,
+          ticket_type_id: ticketTypeId,
+          rp_user_id: rpId,
+          cantidad_asignada: cantidadAsignar,
+          activo: true,
+          created_by: req.usuario.id
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      resultado = data;
+    }
+
+    return res.json({
+      success: true,
+      asignacion: resultado
+    });
+
+  } catch (error) {
+
+    console.error(
+      "ERROR /admin/rps/asignar:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: "No se pudo realizar la asignación"
+    });
+  }
+});
+
 app.get("/admin/dashboard", requerirSesion, async (req, res) => {
   try {
 const rol =
