@@ -15,6 +15,7 @@ const transporter = nodemailer.createTransport({
     pass: process.env.BREVO_PASSWORD
   }
 });
+
 const { createClient } = require("@supabase/supabase-js");
 const HOST = "0.0.0.0";
 const PORT = process.env.PORT || 3000;
@@ -888,6 +889,267 @@ app.post(
 
   }
 );
+
+app.get("/admin/rps", requerirSesion, async (req, res) => {
+  try {
+    const rol = String(req.usuario.rol || "").toLowerCase();
+    const idProductoraSesion = Number(req.usuario.id_productora) || null;
+
+    const esOwner =
+      rol === "owner" ||
+      (rol === "admin" && !idProductoraSesion);
+
+      const esAdminProductora =
+  rol === "admin" && idProductoraSesion;
+
+if (!esOwner && !esAdminProductora) {
+  return res.status(403).json({
+    success: false,
+    error: "No tienes permisos para administrar RPs"
+  });
+}
+    let idProductora;
+
+    if (esOwner) {
+      idProductora = Number(req.query.id_productora);
+
+      if (!Number.isInteger(idProductora) || idProductora <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Productora inválida"
+        });
+      }
+    } else {
+      if (!idProductoraSesion) {
+        return res.status(403).json({
+          success: false,
+          error: "Usuario sin productora"
+        });
+      }
+
+      idProductora = idProductoraSesion;
+    }
+
+    const { data, error } = await supabase
+      .from("cosmic_usuarios")
+      .select(`
+        id,
+        nombre,
+        usuario,
+        rol,
+        activo,
+        id_productora
+      `)
+      .eq("id_productora", idProductora)
+      .eq("rol", "rp")
+      .order("id", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({
+      success: true,
+      id_productora: idProductora,
+      rps: data || []
+    });
+
+  } catch (error) {
+    console.error("ERROR /admin/rps:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Error cargando RPs"
+    });
+  }
+});
+
+app.get("/admin/rps/resumen", requerirSesion, async (req, res) => {
+  try {
+
+    const rol =
+      String(req.usuario.rol || "").toLowerCase();
+
+    const idProductoraSesion =
+      Number(req.usuario.id_productora) || null;
+
+    const esOwner =
+      rol === "owner" ||
+      (rol === "admin" && !idProductoraSesion);
+
+    const esAdminProductora =
+      rol === "admin" && Boolean(idProductoraSesion);
+
+    if (!esOwner && !esAdminProductora) {
+      return res.status(403).json({
+        success: false,
+        error: "No tienes permisos para administrar RPs"
+      });
+    }
+
+    let idProductora;
+
+    if (esOwner) {
+
+      idProductora =
+        Number(req.query.id_productora);
+
+      if (
+        !Number.isInteger(idProductora) ||
+        idProductora <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Productora inválida"
+        });
+      }
+
+    } else {
+
+      idProductora =
+        idProductoraSesion;
+    }
+
+    /* ============================
+       ASIGNACIONES
+    ============================ */
+
+    const {
+      data: asignaciones,
+      error: asignacionesError
+    } = await supabase
+      .from("rp_asignaciones")
+      .select(`
+        id,
+        rp_user_id,
+        id_evento,
+        ticket_type_id,
+        cantidad_asignada,
+        activo
+      `)
+      .eq("id_productora", idProductora);
+
+    if (asignacionesError) {
+      throw asignacionesError;
+    }
+
+    /* ============================
+       RPS
+    ============================ */
+
+    const {
+      data: rps,
+      error: rpsError
+    } = await supabase
+      .from("cosmic_usuarios")
+      .select(`
+        id,
+        nombre,
+        usuario,
+        activo
+      `)
+      .eq("id_productora", idProductora)
+      .eq("rol", "rp");
+
+    if (rpsError) {
+      throw rpsError;
+    }
+
+    /* ============================
+       TICKETS VENDIDOS POR RP
+    ============================ */
+
+    const rpIds =
+      (rps || []).map(rp => rp.id);
+
+    let tickets = [];
+
+    if (rpIds.length > 0) {
+
+      const {
+        data: ticketsData,
+        error: ticketsError
+      } = await supabase
+        .from("tickets")
+        .select(`
+          rp_user_id,
+          evento_id,
+          ticket_type_id,
+          cantidad
+        `)
+        .in("rp_user_id", rpIds);
+
+      if (ticketsError) {
+        throw ticketsError;
+      }
+
+      tickets = ticketsData || [];
+    }
+
+    /* ============================
+       ARMAR RESUMEN
+    ============================ */
+
+    const resumen =
+      (rps || []).map(rp => {
+
+        const asignacionesRp =
+          (asignaciones || []).filter(
+            a => Number(a.rp_user_id) === Number(rp.id)
+          );
+
+        const asignados =
+          asignacionesRp.reduce(
+            (total, a) =>
+              total + Number(a.cantidad_asignada || 0),
+            0
+          );
+
+        const vendidos =
+          tickets
+            .filter(
+              t =>
+                Number(t.rp_user_id) === Number(rp.id)
+            )
+            .reduce(
+              (total, t) =>
+                total + Number(t.cantidad || 1),
+              0
+            );
+
+        const disponibles =
+          Math.max(asignados - vendidos, 0);
+
+        return {
+          id: rp.id,
+          nombre: rp.nombre,
+          usuario: rp.usuario,
+          activo: rp.activo,
+          asignados,
+          vendidos,
+          disponibles
+        };
+      });
+
+    return res.json({
+      success: true,
+      id_productora: idProductora,
+      rps: resumen
+    });
+
+  } catch (error) {
+
+    console.error(
+      "ERROR /admin/rps/resumen:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: "Error cargando resumen de RPs"
+    });
+  }
+});
 
 app.get("/admin/dashboard", requerirSesion, async (req, res) => {
   try {
